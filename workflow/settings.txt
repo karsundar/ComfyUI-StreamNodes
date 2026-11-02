@@ -1,0 +1,18 @@
+Original workflow settings retained:
+GPU: AMD Radeon AI PRO R9700 32GB, ROCm (existing installation)
+Wan Animate 2: original conditioning inputs, pose_strength=1, reference_image_strength=1
+LoRA strength: 1
+Sampler: lcm; CFG: 1; sampling steps: 2; denoise: 1
+ModelSamplingSD3 shift: 5
+Fragment length: 81 frames
+Context length: 21 frames; overlap: 8 frames
+Pose resize: 480 x 832, area, center crop
+VAE tiled decode: tile_size=640, overlap=64, temporal_size=64, temporal_overlap=16
+VideoStreamLoader: start_frame=0, max_frames=81, resize_width=832, resize_height=480
+VideoStreamLoader path: edit to absolute path on your workstation
+For long videos use WanAnimate2StreamController, which reads windows internally.
+Audio: VideoStreamAudio hands the source path to StreamVideoWriter for muxing.
+
+IMPORTANT: max_frames=0 creates a full video tensor and is only for short clips.
+The controller is the bounded-memory path for 1080p/long inputs.
+For a quick test, set max_frames=81, use a short clip, and confirm duration/loop behavior.
