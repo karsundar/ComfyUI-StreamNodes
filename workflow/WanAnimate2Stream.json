@@ -53,7 +53,8 @@
       "tile_overlap": 64,
       "temporal_size": 64,
       "temporal_overlap": 16,
-      "video_codec": "h264"
+      "video_codec": "h264",
+      "compute_device": "auto"
     },
     "class_type": "WanAnimate2StreamController",
     "_meta": {

@@ -2,6 +2,7 @@
 
 ## Files
 - `WanAnimate2Stream.json`: ComfyUI API-format workflow using the bounded controller.
+- `WanAnimate2Stream_UI.json`: ComfyUI canvas workflow with the model, CLIP text encoders, conditioning chain, and prompts grouped into a collapsible subgraph. The subgraph exposes clearly named negative, positive, and native prompt controls.
 - `models.txt`: exact model filenames used by the source workflow.
 - `settings.txt`: preserved parameters and practical test settings.
 
@@ -16,7 +17,7 @@
 2. Place the provided ComfyUI-StreamNodes repository folder in `ComfyUI/custom_nodes/` and restart ComfyUI.
 3. In `WanAnimate2Stream.json`, edit node `246` `video_path` to the absolute driver-video path.
 4. Confirm FFmpeg with `libx264` and PyAV are already available in the existing environment.
-6. Import the API-format JSON using a ComfyUI workflow/API importer compatible with your installation. API JSON is not the same as a full UI graph JSON.
+6. For a compact visual workflow, open `WanAnimate2Stream_UI.json` in ComfyUI and enter the subgraph when you need to inspect or adjust model/conditioning nodes. Use `WanAnimate2Stream.json` with an API workflow importer when execution-only JSON is preferred.
 7. Start with a short clip and validate output before longer runs.
 
 ## Memory and quality limitations

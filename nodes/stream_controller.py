@@ -10,6 +10,7 @@ import re
 
 import torch
 import folder_paths
+import comfy.model_management as model_management
 from comfy_api.latest import io, ui
 from comfy_extras.nodes_wan import WanAnimate2ToVideo
 from nodes import VAEDecodeTiled, common_ksampler
@@ -19,6 +20,37 @@ from ..core.frame_blend import blend_boundary
 from ..core.stream_writer import StreamVideoWriter
 from ..core.temporal_window import iter_windows
 from ..utils.video_decoder import inspect_video
+
+
+def _resolve_compute_device(requested, model):
+    """Resolve the device used by tensors created inside the stream loop.
+
+    Model placement remains owned by ComfyUI's model loader and sampler.  In
+    ``auto`` mode, follow the model patcher's load device when available;
+    otherwise use ComfyUI's configured torch device.
+    """
+    requested = str(requested or "auto").strip().lower()
+    if requested not in {"auto", "gpu", "cpu"}:
+        raise ValueError("compute_device must be one of: auto, gpu, cpu")
+
+    if requested == "cpu":
+        return torch.device("cpu")
+
+    if requested == "auto":
+        model_device = getattr(model, "load_device", None)
+        if model_device is not None:
+            device = torch.device(model_device)
+        else:
+            device = model_management.get_torch_device()
+    else:
+        device = model_management.get_torch_device()
+
+    if requested == "gpu" and model_management.is_device_cpu(device):
+        raise RuntimeError(
+            "compute_device='gpu' was requested, but ComfyUI reports no "
+            "usable accelerator. Start ComfyUI with a GPU-enabled PyTorch build."
+        )
+    return device
 
 LOGGER = logging.getLogger("ComfyUI-StreamNodes")
 
@@ -71,6 +103,16 @@ class WanAnimate2StreamController(io.ComfyNode):
                 io.Int.Input("temporal_size", default=64, min=8, step=4),
                 io.Int.Input("temporal_overlap", default=16, min=4, step=4),
                 io.String.Input("video_codec", default="h264"),
+                io.Combo.Input(
+                    "compute_device",
+                    options=["auto", "gpu", "cpu"],
+                    default="auto",
+                    tooltip=(
+                        "Device for StreamNodes-created tensors. Auto follows "
+                        "the ComfyUI model device; GPU requires an available accelerator."
+                    ),
+                    advanced=True,
+                ),
             ],
             outputs=[io.String.Output(display_name="output_path"),
                      io.Int.Output(display_name="frames_written")],
@@ -87,11 +129,17 @@ class WanAnimate2StreamController(io.ComfyNode):
                 pose_start_percent=0.0, pose_end_percent=1.0,
                 reference_image_strength=1.0, audio_mode="source",
                 tile_size=640, tile_overlap=64, temporal_size=64,
-                temporal_overlap=16, video_codec="h264"):
+                temporal_overlap=16, video_codec="h264", compute_device="auto"):
         if not video_path:
             raise ValueError("A driver video path is required.")
         if window_overlap != 1:
             raise ValueError("Wan Animate 2 native continuation supports exactly one overlap frame.")
+        compute_device = _resolve_compute_device(compute_device, model)
+        LOGGER.info(
+            "Stream controller: compute_device=%s model_load_device=%s",
+            compute_device,
+            getattr(model, "load_device", "managed by ComfyUI"),
+        )
         metadata = inspect_video(video_path)
         if metadata["frames"] <= 0:
             raise ValueError("The driver video has no reliable frame count.")
@@ -143,7 +191,7 @@ class WanAnimate2StreamController(io.ComfyNode):
                     "Stream controller: window %d decoded %d frames; preparing conditioning",
                     index + 1, len(pose_frames),
                 )
-                pose_video = torch.stack(pose_frames, dim=0)
+                pose_video = torch.stack(pose_frames, dim=0).to(compute_device)
                 del pose_frames
                 # The pose tensor is window-local.  Native continuation uses
                 # offset 1 to consume its first (overlap) frame; the global
@@ -204,9 +252,9 @@ class WanAnimate2StreamController(io.ComfyNode):
                     "Stream controller: window %d complete; total frames written=%d",
                     index + 1, written,
                 )
-                previous_motion = frames_to_write[-1:].detach().cpu()
+                previous_motion = frames_to_write[-1:].detach().to(compute_device)
                 if boundary_blend_frames:
-                    previous_tail = frames_to_write[-boundary_blend_frames:].detach().cpu()
+                    previous_tail = frames_to_write[-boundary_blend_frames:].detach().to(compute_device)
                 del pose_video, conditioning, sampled, latent, decoded, frames_to_write
                 gc.collect()
                 if torch.cuda.is_available():

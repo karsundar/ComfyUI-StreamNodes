@@ -73,6 +73,11 @@ Install them with the same interpreter that launches ComfyUI, for example:
 python -m pip install 'av>=12.0' 'numpy>=1.24'
 ```
 
+The Wan Animate 2 Stream Controller has an advanced `compute_device` setting:
+`auto` follows the device selected by ComfyUI's model loader, `gpu` requires a
+usable accelerator and fails clearly otherwise, and `cpu` forces tensors created
+by StreamNodes onto the CPU. Model placement itself remains managed by ComfyUI.
+
 PyTorch and ComfyUI must come from the existing ComfyUI environment. Install
 FFmpeg through the operating system or your environment manager and verify
 that `ffmpeg -encoders` lists `libx264`.
