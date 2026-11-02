@@ -57,8 +57,7 @@ or model files. Use the controller for long videos because ordinary IMAGE
 edges materialize complete tensors.
 
 The direct Python dependencies are listed in [`requirements.txt`](./requirements.txt).
-Install the entries in its `[python]` section with the same interpreter that
-launches ComfyUI, for example:
+Install them with the same interpreter that launches ComfyUI, for example:
 
 ```bash
 python -m pip install 'av>=12.0' 'numpy>=1.24'
