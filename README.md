@@ -3,6 +3,16 @@
 Independent ComfyUI extension for video input management and native
 Wan Animate 2 conditioning integration.
 
+## Sample output
+
+The following video was generated with the example workflow:
+
+<video controls muted loop playsinline width="480" src="./workflow/examples/output.mp4">
+  Your browser does not support embedded video. [Play or download the sample output](./workflow/examples/output.mp4).
+</video>
+
+[Play or download the sample output](./workflow/examples/output.mp4)
+
 ## Nodes
 
 - VideoStreamLoader (bounded window decoder)

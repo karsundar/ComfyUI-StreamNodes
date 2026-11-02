@@ -1,7 +1,7 @@
 {
   "189": {
     "inputs": {
-      "image": "ComfyUI_temp_ghpiv_00003_.png"
+      "image": "examples/reference.png"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -12,7 +12,7 @@
   },
   "700": {
     "inputs": {
-      "video_path": "Count the number of clips in the video chuttamalle dance shorts.mp4"
+      "video_path": "examples/Wan2.1 SCAIL Workflow - Comfy.mp4"
     },
     "class_type": "StreamVideoPath",
     "_meta": {
@@ -194,7 +194,7 @@
   },
   "672:581": {
     "inputs": {
-      "text": "cropped dog, cropped head, cropped ears, cropped body, cropped legs, cropped paws, cropped tail, out of frame, partially visible dog, cut-off feet, missing limbs, extra legs, six legs, duplicated legs, extra paws, fused limbs, overlapping legs, merged bodies, distorted anatomy, malformed joints, stretched body, warped limbs, identity changes, altered fur patterns, face distortion, cartoon style change, realistic style change, morphing, flickering, temporal inconsistency, excessive zoom, camera movement, extreme close-up",
+      "text": "cropped head, cropped ears, cropped body, cropped legs, out of frame, stretched body, identity changes,face distortion, morphing, flickering, temporal inconsistency, excessive zoom, camera movement, extreme close-up",
       "clip": [
         "672:580",
         0
@@ -209,7 +209,7 @@
   },
   "672:582": {
     "inputs": {
-      "text": "Use the reference image containing two girls as the exact appearance and identity reference. Transfer the poses and movements from the input video while preserving both girls' original appearance.\n\nIDENTITY PRESERVATION: Preserve the exact facial features, eye shape, body colors, textures, body proportions, and visual style of both dogs.\n\n\nMOTION TRANSFER: Follow the source video's poses and movements while prioritizing correct anatomy, complete body visibility, and consistent identity across every frame.\n\nCAMERA: Use stable framing and a fixed camera perspective. Keep both girls inside the frame throughout the entire video. No unnecessary zooming, panning, or cropping.",
+      "text": "Use the reference image as the exact appearance and identity reference. Transfer the poses and movements from the input video while preserving both original appearance.IDENTITY PRESERVATION: Preserve the exact facial features, eye shape, body colors, textures, body proportionsMOTION TRANSFER: Follow the source video's poses and movements while prioritizing correct anatomy, complete body visibility, and consistent identity across every frame.CAMERA: Use stable framing and a fixed camera perspective. Keep girl inside the frame throughout the entire video. No unnecessary zooming, panning, or cropping.",
       "clip": [
         "672:580",
         0
@@ -224,7 +224,7 @@
   },
   "672:585": {
     "inputs": {
-      "text": "girls doing energetic street dance with rhythmic steps and dynamic arm gestures, background stationary\n",
+      "text": "girl doing energetic street dance with rhythmic steps and dynamic arm gestures, background stationary\n",
       "clip": [
         "672:580",
         0
