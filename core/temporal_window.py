@@ -11,7 +11,10 @@ def valid_wan_length(length):
     length = int(length)
     if length < 1:
         raise ValueError("Length must be positive.")
-    return ((length - 1) // 4) * 4 + 1
+    # Round up so a short final window still advances the planner.  The
+    # controller's decoder may return fewer source frames for that window;
+    # native Wan conditioning pads the pose clip to the requested length.
+    return ((length - 1 + 3) // 4) * 4 + 1
 
 
 def latent_length(pixel_frames):
@@ -23,6 +26,7 @@ class TemporalWindow:
     start: int
     length: int
     frame_offset: int
+    output_length: int = 0
 
 
 def plan_windows(total_frames, window_length=81, overlap=1):
@@ -44,7 +48,8 @@ def plan_windows(total_frames, window_length=81, overlap=1):
 
     while start < total_frames:
         remaining = total_frames - start
-        length = valid_wan_length(min(window_length, remaining))
+        requested = min(window_length, remaining + (overlap if start else 0))
+        length = valid_wan_length(requested)
 
         if length <= 0:
             break
@@ -52,7 +57,11 @@ def plan_windows(total_frames, window_length=81, overlap=1):
         windows.append(TemporalWindow(
             start=start,
             length=length,
-            frame_offset=start
+            frame_offset=start,
+            output_length=min(
+                remaining - (overlap if start else 0),
+                length - (overlap if start else 0),
+            ),
         ))
 
         if start + length >= total_frames:
@@ -61,3 +70,14 @@ def plan_windows(total_frames, window_length=81, overlap=1):
         start += length - overlap
 
     return windows
+
+
+def iter_windows(total_frames, window_length=81, overlap=1):
+    """Yield bounded windows while preserving exact frame coverage.
+
+    The first frame of a continuation window is the native Wan motion frame;
+    it is decoded as input but is removed from the encoded output by the
+    controller after native conditioning reports ``trim_image``.
+    """
+    for window in plan_windows(total_frames, window_length, overlap):
+        yield window

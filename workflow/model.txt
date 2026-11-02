@@ -1,0 +1,458 @@
+# Project: True Streaming Video Pipeline for ComfyUI Wan Animate 2
+
+## 1. Objective
+
+Implement a memory-efficient, end-to-end streaming video pipeline for **ComfyUI Wan Animate 2**, replacing video-processing components that load entire videos into RAM or VRAM.
+
+The primary use case is:
+
+**Reference image + driver video → Wan Animate 2 → generated video with audio**
+
+The solution should support long input videos and high input resolutions, including 1080p, without memory consumption growing proportionally to total video duration.
+
+The implementation must preserve video-generation quality, character consistency, and temporal continuity.
+
+## 2. Hardware and Environment
+
+- OS: Ubuntu Linux
+- GPU: AMD Radeon AI PRO R9700
+- VRAM: 32 GB
+- GPU framework: ROCm
+- ComfyUI: Existing working installation
+- PyTorch: ROCm build
+- Video decoding: PyAV / FFmpeg
+- Existing working model: Wan Animate 2
+
+**Critical constraint:** Do not reinstall or modify PyTorch, ROCm, or the existing ComfyUI environment unnecessarily.
+
+The current native Wan Animate 2 workflow works. Preserve its model-loading, conditioning, sampling, and VAE behavior.
+
+## 3. Existing Project
+
+GitHub repository:
+
+`https://github.com/karsundar/ComfyUI-StreamNodes`
+
+Current architecture:
+
+```text
+ComfyUI-StreamNodes/
+├── __init__.py
+├── adapters/
+│   ├── wan_animate2.py
+│   └── wan_animate2_lite.py
+├── core/
+│   ├── frame_iterator.py
+│   ├── memory_manager.py
+│   ├── resolution_manager.py
+│   ├── stream_buffer.py
+│   └── temporal_window.py
+└── nodes/
+    ├── video_stream.py
+    ├── video_metadata.py
+    ├── resolution_selector.py
+    └── stream_output.py
+```
+
+Inspect the actual repository before changing code. Adapt the existing architecture rather than replacing it unnecessarily.
+
+## 4. Problems in the Current Implementation
+
+### Problem A: VideoStreamLoader is not truly streaming
+
+The current implementation uses PyAV to decode frames incrementally but eventually accumulates frames in a Python list and combines them using `torch.stack()`.
+
+This means memory usage increases with the number of decoded frames.
+
+**Required change:**
+
+Implement bounded-memory video decoding.
+
+The loader should process only a configurable window of frames at a time.
+
+Example:
+
+```text
+Input video: 1920×1080, 10 minutes
+
+Window 1: frames 0–80
+Window 2: frames 73–153
+Window 3: frames 146–226
+...
+```
+
+The exact window boundaries must be determined by the selected overlap and the native Wan Animate 2 continuation mechanism.
+
+Do not assume overlapping windows can simply be concatenated.
+
+### Problem B: GetVideoComponents+ is still used
+
+The converted workflow retains `GetVideoComponents+` for audio and FPS.
+
+Although this node supports lazy decoding, the goal is to eliminate this dependency.
+
+Replace its functionality with:
+
+**VideoStreamMetadata**
+- Read video dimensions.
+- Read FPS.
+- Determine frame count or duration.
+- Return metadata without decoding the complete video.
+
+**VideoStreamAudio**
+- Preserve the original audio.
+- Avoid decoding the complete audio track into a large in-memory tensor.
+- Prefer stream-copy or FFmpeg-based muxing where compatible.
+
+### Problem C: CreateVideo is not an incremental output writer
+
+The existing workflow uses `CreateVideo` followed by `SaveVideo`.
+
+Implement a streaming video writer that receives completed frames incrementally and encodes them without accumulating the entire generated video.
+
+Use FFmpeg or PyAV.
+
+Requirements:
+- Configurable output FPS.
+- Configurable video codec.
+- H.264 output initially.
+- Preserve source audio when requested.
+- Support long videos.
+- Release completed frames promptly.
+- Handle interruptions and failed encoding cleanly.
+
+### Problem D: WanAnimate2Stream is currently only an adapter
+
+The current `WanAnimate2Stream` delegates to the native `WanAnimate2ToVideo` node.
+
+This preserves conditioning behavior but does not itself implement window-by-window execution.
+
+Implement a controller that coordinates:
+
+1. Loading a bounded driver-video window.
+2. Preparing Wan Animate 2 conditioning.
+3. Running the existing sampler.
+4. Decoding the generated latent.
+5. Writing completed output frames.
+6. Releasing window-specific tensors.
+7. Advancing to the next window.
+
+Preserve the native model and sampler logic wherever possible.
+
+## 5. Target Architecture
+
+```text
+                  Driver Video Path
+                          |
+                 VideoStreamMetadata
+                          |
+                   Window Planner
+                          |
+                 VideoStreamLoader
+                   (bounded window)
+                          |
+Reference Image ---> WanAnimate2Stream
+                          |
+                    Wan Conditioning
+                          |
+                    Native Sampler
+                          |
+                    Tiled VAE Decode
+                          |
+                  StreamVideoWriter
+                          |
+                    Output MP4
+                          ^
+                          |
+                   Audio Stream
+                          |
+                   VideoStreamAudio
+```
+
+**Important:** A ComfyUI node that outputs one full IMAGE tensor is not a complete streaming solution.
+
+Design the execution controller so each window is processed and released before the next window is decoded.
+
+If ComfyUI's standard graph execution model prevents true streaming between nodes, implement a custom orchestration node or an external controller using the ComfyUI API.
+
+Do not introduce a fake streaming abstraction that still accumulates the complete video.
+
+## 6. Wan Animate 2 Integration
+
+Preserve compatibility with these existing model files:
+
+```text
+wan_animate_2_int8_convrot.safetensors
+lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors
+umt5_xxl_fp8_e4m3fn_scaled.safetensors
+clip_vision_h.safetensors
+Wan2_1_VAE_bf16.safetensors
+```
+
+Preserve the original workflow's model settings unless a change is explicitly necessary.
+
+Current relevant settings:
+
+```text
+Sampler: lcm
+Sampling steps: 2
+CFG: 1
+Model shift: 5
+
+Context length: 21
+Context overlap: 8
+
+Fragment length: 81 frames
+
+VAE decoding:
+  tile_size: 640
+  overlap: 64
+  temporal_size: 64
+  temporal_overlap: 16
+```
+
+The implementation should allow configurable:
+
+```text
+window_size
+window_overlap
+output_resolution
+output_fps
+video_codec
+audio_mode
+memory_mode
+```
+
+Support the existing Wan Animate 2 continuation inputs, including `continue_motion` and `video_frame_offset`.
+
+**Do not assume that retaining a few previous output frames is equivalent to preserving Wan Animate 2's native temporal continuation state.**
+
+Inspect the original workflow's loop and continuation logic before modifying it.
+
+## 7. Memory Requirements
+
+The target is bounded memory usage.
+
+Memory should depend primarily on:
+
+- Active input window size.
+- Processing resolution.
+- Model weights.
+- Sampling workspace.
+- Active VAE decode tiles.
+- Encoder buffers.
+
+Memory should not increase continuously as the video duration increases.
+
+### Resolution handling
+
+Support input resolutions including:
+
+- 480p
+- 720p
+- 1080p
+
+Allow input resolution to differ from generation resolution.
+
+For example:
+
+```text
+Driver input: 1920×1080
+Generation: 480×832
+Output: 480×832
+```
+
+Resize frames during or immediately after decoding, before accumulating a window-sized tensor.
+
+Do not decode and store the entire original-resolution video before resizing.
+
+**Important:** Supporting a 1080p input video does not imply that Wan Animate 2 can generate native 1080p output within 32 GB VRAM.
+
+The implementation must clearly distinguish input resolution, model generation resolution, and encoded output resolution.
+
+## 8. Quality and Continuity Requirements
+
+Streaming must not change the mathematical behavior of a single Wan Animate 2 inference window.
+
+Preserve:
+
+- Reference-image conditioning.
+- Pose-video conditioning.
+- CLIP vision conditioning.
+- Positive and negative prompts.
+- Native sampler behavior.
+- Temporal context.
+- Existing LoRA.
+- Existing VAE.
+
+Window transitions must avoid:
+
+- Duplicate frames.
+- Missing frames.
+- Visible jumps.
+- Incorrect temporal offsets.
+- Character identity changes caused by incorrect continuation state.
+
+Document any unavoidable quality trade-offs when processing long videos in separate windows.
+
+## 9. Required Implementation
+
+Implement or update these components:
+
+```text
+core/
+    frame_iterator.py
+    temporal_window.py
+    memory_manager.py
+    stream_buffer.py
+
+nodes/
+    video_stream.py
+    video_metadata.py
+    video_audio.py
+    stream_output.py
+    stream_controller.py
+
+adapters/
+    wan_animate2.py
+```
+
+Additional modules may be created if necessary.
+
+### VideoStreamLoader
+
+Requirements:
+
+- Accept a video file path.
+- Accept a start-frame index.
+- Accept a maximum window length.
+- Decode only the requested window.
+- Resize during decoding when requested.
+- Return only the current window.
+- Avoid full-video frame accumulation.
+
+### VideoStreamMetadata
+
+Requirements:
+
+- Extract metadata without full decoding.
+- Report FPS as a rational value where possible.
+- Report dimensions.
+- Report duration.
+- Report frame count when reliably available.
+- Handle variable-frame-rate inputs explicitly.
+
+### VideoStreamAudio
+
+Requirements:
+
+- Preserve source audio.
+- Support audio stream copy when possible.
+- Fall back to audio transcoding when required.
+- Synchronize audio with the output video timeline.
+- Avoid loading the entire audio track into memory.
+
+### StreamVideoWriter
+
+Requirements:
+
+- Initialize output encoding.
+- Append frames incrementally.
+- Finalize the output file.
+- Mux audio.
+- Handle failed or interrupted jobs.
+- Avoid unbounded frame buffering.
+
+### WanAnimate2StreamController
+
+Requirements:
+
+- Iterate through windows.
+- Invoke the existing Wan Animate 2 generation workflow.
+- Preserve continuation state.
+- Decode output latents.
+- Write completed frames.
+- Release intermediate tensors.
+- Track progress.
+- Support cancellation and failure recovery.
+
+Do not duplicate ComfyUI's model inference code unless unavoidable.
+
+## 10. Testing
+
+Create tests for:
+
+1. Short 480p video.
+2. Long 1080p input video with 480p generation.
+3. Window-boundary frame correctness.
+4. Audio synchronization.
+5. Memory stability over increasing video duration.
+6. Cancellation and cleanup.
+7. Preservation of the original native workflow's outputs.
+
+For memory tests, measure:
+
+```text
+Peak GPU VRAM
+Peak process RAM
+Video decode time
+Sampling time
+VAE decode time
+Encoding time
+Total execution time
+```
+
+Run comparative tests against the original workflow.
+
+Do not claim that streaming prevents every possible OOM. A single processing window may still exceed available VRAM.
+
+## 11. Deliverables
+
+Provide:
+
+1. Updated ComfyUI custom-node source code.
+2. Working node registration.
+3. Updated Wan Animate 2 workflow JSON.
+4. README with installation instructions.
+5. Model requirements.
+6. Configuration reference.
+7. Test scripts.
+8. Memory benchmark procedure.
+9. Known limitations and quality trade-offs.
+
+The workflow must be importable into ComfyUI.
+
+Avoid placeholder nodes and unimplemented methods in the final deliverable.
+
+## 12. Implementation Priorities
+
+Implement in this order:
+
+**Phase 1 — True bounded input decoding**
+
+Fix `VideoStreamLoader` to decode and resize only the requested window. Add metadata extraction. Verify that memory remains stable when reading successive windows.
+
+**Phase 2 — Streaming output**
+
+Implement incremental video encoding and audio muxing. Verify that output frames are written without retaining the complete generated video.
+
+**Phase 3 — Wan Animate 2 orchestration**
+
+Integrate the existing native conditioning, sampler, VAE, and continuation logic into a sequential window-processing controller.
+
+**Phase 4 — End-to-end validation**
+
+Validate continuity, memory usage, output frame counts, audio synchronization, and quality against the existing workflow.
+
+## 13. Non-Negotiable Constraints
+
+- Preserve the working ROCm environment.
+- Do not modify installed PyTorch or ComfyUI core files.
+- Do not change the existing Wan Animate 2 models.
+- Do not silently alter generation settings.
+- Do not accumulate the entire input or output video in memory.
+- Do not claim true streaming unless memory usage is bounded across video duration.
+- Keep the implementation modular and maintainable.
+- Explain any technical limitations imposed by ComfyUI's execution model.
+
+**Final goal:** Generate long Wan Animate 2 videos from a reference image and driver video on an AMD Radeon AI PRO R9700 32GB, with bounded-memory input decoding, windowed generation, tiled VAE decoding, incremental video encoding, and preserved audio.

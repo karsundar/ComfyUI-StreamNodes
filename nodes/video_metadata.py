@@ -14,8 +14,11 @@ class VideoMetadata(io.ComfyNode):
                 io.Int.Output(display_name="width"),
                 io.Int.Output(display_name="height"),
                 io.Float.Output(display_name="fps"),
+                io.Int.Output(display_name="fps_numerator"),
+                io.Int.Output(display_name="fps_denominator"),
                 io.Int.Output(display_name="frames"),
                 io.Float.Output(display_name="duration_seconds"),
+                io.Boolean.Output(display_name="variable_frame_rate"),
             ],
         )
 
@@ -24,5 +27,6 @@ class VideoMetadata(io.ComfyNode):
         data = inspect_video(video_path)
         return io.NodeOutput(
             data["width"], data["height"], data["fps"],
-            data["frames"], data["duration"]
+            data["fps_numerator"], data["fps_denominator"],
+            data["frames"], data["duration"], data["variable_frame_rate"]
         )
