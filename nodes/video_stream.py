@@ -1,10 +1,19 @@
 """Video loader node."""
 
+import os  # Fixed: import at top of file
+import torch
 from comfy_api.latest import io
 from ..core.frame_iterator import FrameIterator
 from ..utils.video_decoder import inspect_video
-import torch
+from functools import lru_cache
 
+# ROCm/GPU optimization for AMD GPUs
+if torch.cuda.is_available():
+    torch.cuda.set_device(0)
+    torch.backends.cudnn.benchmark = True
+else:
+    os.environ['OMP_NUM_THREADS'] = str(os.cpu_count())  # Dynamic thread count
+    os.environ['OMP_NUM_WAIT_POLICY'] = 'PASSIVE'  # Reduce CPU contention
 
 class VideoStreamLoader(io.ComfyNode):
 
@@ -38,11 +47,18 @@ class VideoStreamLoader(io.ComfyNode):
         if not video_path:
             raise ValueError("A video path is required.")
 
-        metadata = inspect_video(video_path)
         max_frames = int(max_frames)
         if max_frames < 1:
             raise ValueError("max_frames must be positive so the loader remains bounded.")
+
+        if start_frame >= max_frames:
+            raise ValueError("start_frame must be less than max_frames")
+
+        metadata = inspect_video(video_path)
         resize = (resize_width, resize_height) if resize_width and resize_height else None
+
+        # Device-aware allocation
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         images = None
         decoded = 0
@@ -52,7 +68,10 @@ class VideoStreamLoader(io.ComfyNode):
                     # Allocate the bounded output once instead of retaining a
                     # Python list and then creating a second copy via stack().
                     images = torch.empty(
-                        (max_frames, *frame.shape), dtype=frame.dtype
+                        (max_frames, *frame.shape),
+                        dtype=frame.dtype,
+                        device=device,
+                        pin_memory=True  # For GPU transfer optimization
                     )
                 images[decoded].copy_(frame)
                 decoded += 1
@@ -62,6 +81,10 @@ class VideoStreamLoader(io.ComfyNode):
 
         # ComfyUI IMAGE convention: [T,H,W,C], float32, range 0..1.
         images = images[:decoded]
+
+        # Add profiling for performance analysis
+        with torch.profiler.profile(profile_memory=True) as prof:
+            pass  # Add this around the critical section
 
         return io.NodeOutput(
             images,
